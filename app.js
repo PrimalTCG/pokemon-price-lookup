@@ -1,0 +1,478 @@
+const API_BASE = "https://api.pokemontcg.io/v2/cards";
+
+const CONDITIONS = [
+  { label: "Near Mint (100%)", pct: 100 },
+  { label: "Lightly Played (~85%)", pct: 85 },
+  { label: "Moderately Played (~65%)", pct: 65 },
+  { label: "Heavily Played (~40%)", pct: 40 },
+  { label: "Damaged (~20%)", pct: 20 },
+];
+
+const store = {
+  getApiKey: () => localStorage.getItem("pfp_apiKey") || "",
+  setApiKey: (v) => localStorage.setItem("pfp_apiKey", v),
+  getConditionDefault: () => Number(localStorage.getItem("pfp_conditionDefault")) || 100,
+  setConditionDefault: (v) => localStorage.setItem("pfp_conditionDefault", String(v)),
+  getHistory: () => JSON.parse(localStorage.getItem("pfp_history") || "[]"),
+  setHistory: (arr) => localStorage.setItem("pfp_history", JSON.stringify(arr)),
+  getComps: () => JSON.parse(localStorage.getItem("pfp_comps") || "{}"),
+  setComps: (obj) => localStorage.setItem("pfp_comps", JSON.stringify(obj)),
+};
+
+const el = {
+  searchInput: document.getElementById("search-input"),
+  cameraBtn: document.getElementById("camera-btn"),
+  cameraInput: document.getElementById("camera-input"),
+  ocrStatus: document.getElementById("ocr-status"),
+  searchStatus: document.getElementById("search-status"),
+  resultsList: document.getElementById("results-list"),
+  recentSection: document.getElementById("recent-section"),
+  recentList: document.getElementById("recent-list"),
+  searchView: document.getElementById("search-view"),
+  detailView: document.getElementById("detail-view"),
+  detailContent: document.getElementById("detail-content"),
+  backBtn: document.getElementById("back-btn"),
+  settingsBtn: document.getElementById("settings-btn"),
+  settingsView: document.getElementById("settings-view"),
+  apiKeyInput: document.getElementById("api-key-input"),
+  conditionDefault: document.getElementById("condition-default"),
+  saveSettingsBtn: document.getElementById("save-settings-btn"),
+  clearHistoryBtn: document.getElementById("clear-history-btn"),
+};
+
+let state = {
+  currentCard: null,
+  currentVariant: null,
+  currentConditionPct: store.getConditionDefault(),
+};
+
+function parseApiDate(str) {
+  if (!str) return null;
+  const d = new Date(str.replace(/\//g, "-"));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function daysSince(str) {
+  const d = parseApiDate(str);
+  if (!d) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+function formatDaysAgo(days) {
+  if (days == null) return "unknown date";
+  if (days <= 0) return "today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
+}
+
+function formatMoney(n) {
+  if (n == null || isNaN(n)) return "—";
+  return "$" + Number(n).toFixed(2);
+}
+
+async function apiFetch(url) {
+  const headers = {};
+  const key = store.getApiKey();
+  if (key) headers["X-Api-Key"] = key;
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    if (res.status === 429) throw new Error("Rate limited. Add a free API key in Settings to raise your limit.");
+    throw new Error(`Lookup failed (${res.status})`);
+  }
+  return res.json();
+}
+
+let searchTimer = null;
+el.searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const term = el.searchInput.value.trim();
+  if (!term) {
+    el.resultsList.innerHTML = "";
+    el.searchStatus.textContent = "";
+    renderRecent();
+    return;
+  }
+  searchTimer = setTimeout(() => runSearch(term), 350);
+});
+
+async function runSearch(term) {
+  el.searchStatus.textContent = "Searching…";
+  el.resultsList.innerHTML = "";
+  try {
+    const q = encodeURIComponent(`name:${term}*`);
+    const data = await apiFetch(`${API_BASE}?q=${q}&pageSize=25&orderBy=-set.releaseDate`);
+    const cards = data.data || [];
+    if (cards.length === 0) {
+      el.searchStatus.textContent = "No cards found. Try a shorter or different spelling.";
+      return;
+    }
+    el.searchStatus.textContent = `${cards.length} result${cards.length === 1 ? "" : "s"}`;
+    renderResults(cards);
+  } catch (err) {
+    el.searchStatus.textContent = err.message;
+  }
+}
+
+function bestGlanceHighlights(card) {
+  const tcg = card.tcgplayer?.prices;
+  if (tcg) {
+    const variant = tcg.holofoil || tcg.normal || tcg.reverseHolofoil || Object.values(tcg)[0];
+    if (variant?.market) return formatMoney(variant.market);
+  }
+  if (card.cardmarket?.prices?.trendPrice) return formatMoney(card.cardmarket.prices.trendPrice);
+  return "no data";
+}
+
+function renderResults(cards) {
+  el.resultsList.innerHTML = "";
+  for (const card of cards) {
+    const li = document.createElement("li");
+    li.className = "result-item";
+    li.innerHTML = `
+      <img src="${card.images?.small || ""}" alt="" loading="lazy" />
+      <div>
+        <div class="rname">${card.name}</div>
+        <div class="rmeta">${card.set?.name || ""} · #${card.number}${card.set?.printedTotal ? "/" + card.set.printedTotal : ""} · ${card.rarity || "—"}</div>
+      </div>
+      <div class="result-price">${bestGlanceHighlights(card)}</div>
+    `;
+    li.addEventListener("click", () => openDetail(card));
+    el.resultsList.appendChild(li);
+  }
+}
+
+function renderRecent() {
+  const history = store.getHistory();
+  if (history.length === 0) {
+    el.recentSection.hidden = true;
+    return;
+  }
+  el.recentSection.hidden = false;
+  el.recentList.innerHTML = "";
+  for (const item of history) {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.innerHTML = `<img src="${item.images?.small || ""}" alt="" /><span>${item.name}</span>`;
+    chip.addEventListener("click", () => openDetail(item));
+    el.recentList.appendChild(chip);
+  }
+}
+
+function pushHistory(card) {
+  let history = store.getHistory().filter((c) => c.id !== card.id);
+  history.unshift(card);
+  history = history.slice(0, 20);
+  store.setHistory(history);
+}
+
+function openDetail(card) {
+  state.currentCard = card;
+  const variants = Object.keys(card.tcgplayer?.prices || {});
+  state.currentVariant = variants[0] || null;
+  state.currentConditionPct = store.getConditionDefault();
+  pushHistory(card);
+  el.searchView.hidden = true;
+  el.settingsView.hidden = true;
+  el.detailView.hidden = false;
+  renderDetail();
+}
+
+el.backBtn.addEventListener("click", () => {
+  el.detailView.hidden = true;
+  el.searchView.hidden = false;
+  renderRecent();
+});
+
+function variantLabel(key) {
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^1st/i, "1st")
+    .trim();
+}
+
+function computeDataPoints(card, variant, comps) {
+  const points = [];
+  const tcg = card.tcgplayer;
+  if (tcg?.prices?.[variant]) {
+    const days = daysSince(tcg.updatedAt);
+    const p = tcg.prices[variant];
+    const fields = [
+      ["market", 3],
+      ["mid", 1],
+      ["low", 1],
+      ["high", 1],
+    ];
+    for (const [key, weight] of fields) {
+      if (typeof p[key] === "number") {
+        points.push({ label: `TCGplayer ${key}`, value: p[key], days, weight });
+      }
+    }
+  }
+  const cm = card.cardmarket;
+  if (cm?.prices) {
+    const days = daysSince(cm.updatedAt);
+    const isReverse = variant === "reverseHolofoil";
+    const fields = isReverse
+      ? [
+          ["reverseHoloTrend", "Cardmarket reverse holo trend", 3],
+          ["reverseHoloAvg30", "Cardmarket reverse holo 30d avg", 2],
+          ["reverseHoloAvg7", "Cardmarket reverse holo 7d avg", 1],
+          ["reverseHoloAvg1", "Cardmarket reverse holo 1d avg", 1],
+        ]
+      : [
+          ["trendPrice", "Cardmarket trend", 3],
+          ["avg30", "Cardmarket 30d avg", 2],
+          ["avg7", "Cardmarket 7d avg", 1],
+          ["avg1", "Cardmarket 1d avg", 1],
+        ];
+    for (const [key, label, weight] of fields) {
+      if (typeof cm.prices[key] === "number" && cm.prices[key] > 0) {
+        points.push({ label, value: cm.prices[key], days, weight });
+      }
+    }
+  }
+  for (const c of comps) {
+    points.push({
+      label: `Your comp${c.note ? ": " + c.note : ""}`,
+      value: c.price,
+      days: daysSince(c.date),
+      weight: 2,
+      isComp: true,
+    });
+  }
+  return points;
+}
+
+function summarize(points) {
+  if (points.length === 0) return null;
+  const withDays = points.filter((p) => p.days != null);
+  const fresh = withDays.filter((p) => p.days <= 30);
+  const semiFresh = withDays.filter((p) => p.days <= 90);
+  const usable = fresh.length ? fresh : semiFresh.length ? semiFresh : points;
+
+  let weightSum = 0;
+  let weighted = 0;
+  for (const p of usable) {
+    weighted += p.value * p.weight;
+    weightSum += p.weight;
+  }
+  const suggested = weightSum ? weighted / weightSum : usable[0].value;
+  const values = usable.map((p) => p.value);
+  const range = [Math.min(...values), Math.max(...values)];
+
+  let confidence = "low";
+  if (fresh.length >= 2) confidence = "high";
+  else if (fresh.length === 1 || points.length >= 2) confidence = "medium";
+
+  return { suggested, range, confidence, usable, allPoints: points };
+}
+
+function renderDetail() {
+  const card = state.currentCard;
+  const variant = state.currentVariant;
+  const comps = (store.getComps()[card.id] || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  const summary = summarize(computeDataPoints(card, variant, comps));
+  const conditionPct = state.currentConditionPct;
+
+  const variants = Object.keys(card.tcgplayer?.prices || {});
+  const variantButtons = variants
+    .map(
+      (v) =>
+        `<button class="variant-btn ${v === variant ? "active" : ""}" data-variant="${v}">${variantLabel(v)}</button>`
+    )
+    .join("");
+
+  const tcgUpdated = card.tcgplayer?.updatedAt ? daysSince(card.tcgplayer.updatedAt) : null;
+  const cmUpdated = card.cardmarket?.updatedAt ? daysSince(card.cardmarket.updatedAt) : null;
+
+  const tcgRows = variant && card.tcgplayer?.prices?.[variant]
+    ? Object.entries(card.tcgplayer.prices[variant])
+        .filter(([, v]) => typeof v === "number")
+        .map(
+          ([k, v]) =>
+            `<tr><td>${k}</td><td>${formatMoney(v)}</td><td class="${tcgUpdated != null && tcgUpdated <= 30 ? "fresh" : "stale"}">${formatDaysAgo(tcgUpdated)}</td></tr>`
+        )
+        .join("")
+    : "";
+
+  const CM_FIELDS = variant === "reverseHolofoil"
+    ? [["reverseHoloTrend", "reverse holo trend"], ["reverseHoloAvg30", "reverse holo 30d avg"], ["reverseHoloAvg7", "reverse holo 7d avg"], ["reverseHoloAvg1", "reverse holo 1d avg"]]
+    : [["trendPrice", "trend"], ["averageSellPrice", "average sell"], ["avg30", "30d avg"], ["avg7", "7d avg"], ["avg1", "1d avg"], ["lowPrice", "low"]];
+  const cmRows = card.cardmarket?.prices
+    ? CM_FIELDS.filter(([k]) => typeof card.cardmarket.prices[k] === "number" && card.cardmarket.prices[k] > 0)
+        .map(
+          ([k, label]) =>
+            `<tr><td>${label}</td><td>${formatMoney(card.cardmarket.prices[k])}</td><td class="${cmUpdated != null && cmUpdated <= 30 ? "fresh" : "stale"}">${formatDaysAgo(cmUpdated)}</td></tr>`
+        )
+        .join("")
+    : "";
+
+  const compRows = comps
+    .map(
+      (c, i) =>
+        `<div class="comp-item"><span>${formatMoney(c.price)}${c.note ? " — " + c.note : ""}</span><span>${c.date} <a href="#" data-remove-comp="${i}" style="color:var(--bad);margin-left:8px;">remove</a></span></div>`
+    )
+    .join("");
+
+  const suggestedBlock = summary
+    ? `
+      <span class="confidence-badge confidence-${summary.confidence}">${summary.confidence.toUpperCase()} CONFIDENCE</span>
+      <div class="suggested-price">${formatMoney(summary.suggested * (conditionPct / 100))}</div>
+      <div class="suggested-range">Range: ${formatMoney(summary.range[0] * (conditionPct / 100))} – ${formatMoney(summary.range[1] * (conditionPct / 100))} at ${conditionPct}% condition, based on ${summary.usable.length} data point${summary.usable.length === 1 ? "" : "s"}</div>
+    `
+    : `<div class="no-data">No pricing data found for this card/variant yet. Add a comp below if you've seen a recent sale.</div>`;
+
+  el.detailContent.innerHTML = `
+    <div class="card-head">
+      <img src="${card.images?.large || card.images?.small || ""}" alt="" />
+      <div>
+        <h2>${card.name}</h2>
+        <div class="set-line">${card.set?.name || ""} · #${card.number}${card.set?.printedTotal ? "/" + card.set.printedTotal : ""}</div>
+        <div class="set-line">${card.rarity || ""}${card.set?.releaseDate ? " · Released " + card.set.releaseDate : ""}</div>
+      </div>
+    </div>
+
+    <div class="section-box">
+      <h3>Suggested fair price</h3>
+      ${suggestedBlock}
+      <div class="condition-row">
+        <label for="condition-select">Condition</label>
+        <select id="condition-select"></select>
+      </div>
+    </div>
+
+    ${variants.length ? `
+    <div class="section-box">
+      <h3>Print / variant</h3>
+      <div class="variant-row">${variantButtons}</div>
+      ${tcgRows ? `<table class="price-table"><thead><tr><th>TCGplayer</th><th>Price</th><th>Updated</th></tr></thead><tbody>${tcgRows}</tbody></table>` : `<div class="no-data">No TCGplayer data for this variant.</div>`}
+    </div>` : ""}
+
+    ${cmRows ? `
+    <div class="section-box">
+      <h3>Cardmarket (EU)</h3>
+      <table class="price-table"><thead><tr><th>Field</th><th>Price</th><th>Updated</th></tr></thead><tbody>${cmRows}</tbody></table>
+    </div>` : ""}
+
+    <div class="section-box">
+      <h3>Your comps / notes</h3>
+      ${compRows || `<div class="no-data">No comps added yet. If you spot a recent sale (eBay, another vendor, etc.) log it here — it factors into the suggested price above.</div>`}
+      <div class="comp-add-row">
+        <input type="number" id="comp-price" placeholder="Price" step="0.01" />
+        <input type="text" id="comp-note" placeholder="Note (e.g. ebay sold, PSA 9)" />
+        <button class="text-btn" id="comp-add-btn">Add</button>
+      </div>
+    </div>
+  `;
+
+  const condSelect = document.getElementById("condition-select");
+  CONDITIONS.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.pct;
+    opt.textContent = c.label;
+    if (c.pct === conditionPct) opt.selected = true;
+    condSelect.appendChild(opt);
+  });
+  condSelect.addEventListener("change", (e) => {
+    state.currentConditionPct = Number(e.target.value);
+    renderDetail();
+  });
+
+  el.detailContent.querySelectorAll(".variant-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.currentVariant = btn.dataset.variant;
+      renderDetail();
+    });
+  });
+
+  const addBtn = document.getElementById("comp-add-btn");
+  addBtn.addEventListener("click", () => {
+    const priceInput = document.getElementById("comp-price");
+    const noteInput = document.getElementById("comp-note");
+    const price = parseFloat(priceInput.value);
+    if (!price || price <= 0) return;
+    const allComps = store.getComps();
+    const list = allComps[card.id] || [];
+    list.push({ price, note: noteInput.value.trim(), date: new Date().toISOString().slice(0, 10) });
+    allComps[card.id] = list;
+    store.setComps(allComps);
+    renderDetail();
+  });
+
+  el.detailContent.querySelectorAll("[data-remove-comp]").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      const idx = Number(a.dataset.removeComp);
+      const allComps = store.getComps();
+      const list = allComps[card.id] || [];
+      list.splice(idx, 1);
+      allComps[card.id] = list;
+      store.setComps(allComps);
+      renderDetail();
+    });
+  });
+}
+
+el.cameraBtn.addEventListener("click", () => el.cameraInput.click());
+el.cameraInput.addEventListener("change", async () => {
+  const file = el.cameraInput.files[0];
+  if (!file) return;
+  el.ocrStatus.hidden = false;
+  el.ocrStatus.textContent = "Reading card photo…";
+  try {
+    const result = await Tesseract.recognize(file, "eng", {
+      logger: (m) => {
+        if (m.status === "recognizing text") {
+          el.ocrStatus.textContent = `Reading card photo… ${Math.round(m.progress * 100)}%`;
+        }
+      },
+    });
+    const text = result.data.text || "";
+    const guess = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length >= 3 && /[a-zA-Z]{3,}/.test(l))
+      .sort((a, b) => b.length - a.length)[0];
+    el.ocrStatus.hidden = true;
+    if (guess) {
+      el.searchInput.value = guess.replace(/[^a-zA-Z '-]/g, "").trim();
+      runSearch(el.searchInput.value);
+    } else {
+      el.searchStatus.textContent = "Couldn't read text from photo — try typing the name instead.";
+    }
+  } catch (err) {
+    el.ocrStatus.hidden = true;
+    el.searchStatus.textContent = "Photo scan failed — try typing the name instead.";
+  }
+  el.cameraInput.value = "";
+});
+
+el.settingsBtn.addEventListener("click", () => {
+  el.searchView.hidden = true;
+  el.detailView.hidden = true;
+  el.settingsView.hidden = false;
+  el.apiKeyInput.value = store.getApiKey();
+  el.conditionDefault.innerHTML = "";
+  CONDITIONS.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.pct;
+    opt.textContent = c.label;
+    if (c.pct === store.getConditionDefault()) opt.selected = true;
+    el.conditionDefault.appendChild(opt);
+  });
+});
+
+el.saveSettingsBtn.addEventListener("click", () => {
+  store.setApiKey(el.apiKeyInput.value.trim());
+  store.setConditionDefault(Number(el.conditionDefault.value));
+  el.settingsView.hidden = true;
+  el.searchView.hidden = false;
+  renderRecent();
+});
+
+el.clearHistoryBtn.addEventListener("click", () => {
+  store.setHistory([]);
+  renderRecent();
+});
+
+renderRecent();

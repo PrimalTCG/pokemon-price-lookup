@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1f2937" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Card Fair Price</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Card Fair Price</h1>
+    <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+  </header>
+
+  <main id="search-view">
+    <div class="search-row">
+      <input id="search-input" type="text" inputmode="search" placeholder="Search card name (e.g. Charizard)" autocomplete="off" />
+      <button id="camera-btn" class="icon-btn" aria-label="Scan card photo">📷</button>
+    </div>
+    <input id="camera-input" type="file" accept="image/*" capture="environment" hidden />
+    <div id="ocr-status" class="status-line" hidden></div>
+
+    <section id="recent-section" hidden>
+      <h2>Recent lookups</h2>
+      <div id="recent-list" class="chip-row"></div>
+    </section>
+
+    <div id="search-status" class="status-line"></div>
+    <ul id="results-list" class="results-list"></ul>
+  </main>
+
+  <main id="detail-view" hidden>
+    <button id="back-btn" class="text-btn">← Back to search</button>
+    <div id="detail-content"></div>
+  </main>
+
+  <div id="settings-view" hidden>
+    <div class="settings-panel">
+      <h2>Settings</h2>
+      <label for="api-key-input">pokemontcg.io API key (optional, raises rate limit)</label>
+      <input id="api-key-input" type="text" placeholder="Paste free API key here" autocomplete="off" />
+      <p class="hint">Free key: <span class="fake-link">pokemontcg.io/getStarted</span> — without a key you're capped around ~30 requests/minute shared with other free users, which can get slow during a busy show.</p>
+      <label for="condition-default">Default condition assumption</label>
+      <select id="condition-default"></select>
+      <div class="settings-actions">
+        <button id="save-settings-btn" class="primary-btn">Save</button>
+        <button id="clear-history-btn" class="text-btn">Clear recent lookups</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

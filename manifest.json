@@ -1,0 +1,8 @@
+{
+  "name": "Card Fair Price",
+  "short_name": "CardPrice",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f7f7f5",
+  "theme_color": "#1f2937"
+}
