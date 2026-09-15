@@ -94,6 +94,22 @@ Each card's "Suggested fair price" panel has a Raw / Graded toggle:
   start fresh"** button removes just that card's comps for the currently-viewed company+grade in
   one tap, so re-checking and re-logging is fast instead of deleting entries one at a time.
 
+### Check TCGplayer
+
+Both modes also have a **"🛒 Check TCGplayer"** button, deep-linking to TCGplayer's own product
+search — researched the same way as the eBay one. TCGplayer's search (`card name + set name + card
+number/set total`, e.g. `Blaine's Charizard Gym Challenge 2/132`) reliably puts the exact card as
+the first result with its real live Market Price, since TCGplayer is a structured product catalog
+rather than free-text listings like eBay. A bare numeric TCGplayer product ID
+(`tcgplayer.com/product/<id>`) would link even more precisely, but neither pokemontcg.io nor TCGdex
+expose that ID cleanly without following an affiliate-tracked redirect chain that isn't appropriate
+to route users through silently — the search link is the clean, reliable alternative.
+
+The two buttons are ordered deliberately: in **Raw** mode, TCGplayer is listed above eBay, since
+TCGplayer is the standard raw/ungraded singles market; in **Graded** mode, eBay is listed above
+TCGplayer, since eBay sold listings are the real signal for graded slabs and TCGplayer there is
+only a secondary raw-price reference point.
+
 ## Staying up during an outage
 
 pokemontcg.io occasionally throws server errors (it's a free community API). To keep the app

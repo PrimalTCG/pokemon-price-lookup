@@ -83,6 +83,13 @@ function formatMoney(n) {
   return "$" + Number(n).toFixed(2);
 }
 
+function buildTcgplayerSearchUrl(card) {
+  const cardNumber = card.number ? (card.set?.printedTotal ? `${card.number}/${card.set.printedTotal}` : card.number) : null;
+  const terms = [card.name, card.set?.name, cardNumber].filter(Boolean);
+  const params = new URLSearchParams({ q: terms.join(" ") });
+  return `https://www.tcgplayer.com/search/pokemon/product?${params.toString()}`;
+}
+
 function buildEbaySoldSearchUrl(card, extraTerms) {
   const year = card.set?.releaseDate ? card.set.releaseDate.slice(0, 4) : null;
   const cardNumber = card.number ? (card.set?.printedTotal ? `${card.number}/${card.set.printedTotal}` : card.number) : null;
@@ -580,6 +587,7 @@ function renderDetail() {
     : `<div class="no-data">No pricing data found for this card/variant yet. Add a comp below if you've seen a recent sale.</div>`;
 
   const rawEbayUrl = buildEbaySoldSearchUrl(card, [CONDITIONS.find((c) => c.pct === conditionPct)?.code]);
+  const rawTcgplayerUrl = buildTcgplayerSearchUrl(card);
 
   const rawModeBlock = `
     ${rawSuggestedBlock}
@@ -587,7 +595,8 @@ function renderDetail() {
       <label for="condition-select">Condition</label>
       <select id="condition-select"></select>
     </div>
-    <a class="ebay-link-btn" href="${rawEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings ↗</a>
+    <a class="link-btn" href="${rawTcgplayerUrl}" target="_blank" rel="noopener">🛒 Check TCGplayer ↗</a>
+    <a class="link-btn" href="${rawEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings ↗</a>
   `;
 
   const STALE_COMP_DAYS = 30;
@@ -605,6 +614,7 @@ function renderDetail() {
     : `<div class="no-data">No ${state.gradedCompany} ${state.gradedGrade} comps logged yet for this card. Tap "Check eBay sold listings" below to see real recent sales for this exact card/grade, then log what you find as a comp — it's remembered for every future lookup of this card.</div>`;
 
   const gradedEbayUrl = buildEbaySoldSearchUrl(card, [state.gradedCompany, state.gradedGrade]);
+  const gradedTcgplayerUrl = buildTcgplayerSearchUrl(card);
 
   const gradedModeBlock = `
     <div class="condition-row">
@@ -614,7 +624,8 @@ function renderDetail() {
       <select id="grade-value-select"></select>
     </div>
     ${gradedSuggestedBlock}
-    <a class="ebay-link-btn" href="${gradedEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings for ${state.gradedCompany} ${state.gradedGrade} ↗</a>
+    <a class="link-btn" href="${gradedEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings for ${state.gradedCompany} ${state.gradedGrade} ↗</a>
+    <a class="link-btn" href="${gradedTcgplayerUrl}" target="_blank" rel="noopener">🛒 Check TCGplayer (raw price reference) ↗</a>
     ${gradedSuggestion ? `<button class="text-btn" id="clear-graded-comps-btn">Clear ${state.gradedCompany} ${state.gradedGrade} comps &amp; start fresh</button>` : ""}
   `;
 

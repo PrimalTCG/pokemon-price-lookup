@@ -531,7 +531,7 @@ table.price-table th {
   cursor: pointer;
 }
 
-.ebay-link-btn {
+.link-btn {
   display: block;
   text-align: center;
   margin-top: 12px;
@@ -549,7 +549,7 @@ table.price-table th {
   cursor: pointer;
 }
 
-.ebay-link-btn:hover {
+.link-btn:hover {
   border-color: var(--border-strong);
   color: var(--accent-2);
 }
