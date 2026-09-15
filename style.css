@@ -531,6 +531,29 @@ table.price-table th {
   cursor: pointer;
 }
 
+.ebay-link-btn {
+  display: block;
+  text-align: center;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--chip-bg);
+  color: var(--text);
+  font-family: "Oswald", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ebay-link-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--accent-2);
+}
+
 .no-data {
   color: var(--muted);
   font-style: italic;

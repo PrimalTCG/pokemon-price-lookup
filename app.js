@@ -2,11 +2,11 @@ const POKEMONTCG_BASE = "https://api.pokemontcg.io/v2/cards";
 const TCGDEX_BASE = "https://api.tcgdex.net/v2/en";
 
 const CONDITIONS = [
-  { label: "Near Mint (100%)", pct: 100 },
-  { label: "Lightly Played (~85%)", pct: 85 },
-  { label: "Moderately Played (~65%)", pct: 65 },
-  { label: "Heavily Played (~40%)", pct: 40 },
-  { label: "Damaged (~20%)", pct: 20 },
+  { label: "Near Mint (100%)", pct: 100, code: "NM" },
+  { label: "Lightly Played (~85%)", pct: 85, code: "LP" },
+  { label: "Moderately Played (~65%)", pct: 65, code: "MP" },
+  { label: "Heavily Played (~40%)", pct: 40, code: "HP" },
+  { label: "Damaged (~20%)", pct: 20, code: "DMG" },
 ];
 
 const GRADING_COMPANIES = {
@@ -81,6 +81,17 @@ function formatDaysAgo(days) {
 function formatMoney(n) {
   if (n == null || isNaN(n)) return "—";
   return "$" + Number(n).toFixed(2);
+}
+
+function buildEbaySoldSearchUrl(card, extraTerms) {
+  const terms = [card.name, card.set?.name, ...extraTerms].filter(Boolean);
+  const params = new URLSearchParams({
+    _nkw: terms.join(" "),
+    LH_Sold: "1",
+    LH_Complete: "1",
+    _sop: "13",
+  });
+  return `https://www.ebay.com/sch/i.html?${params.toString()}`;
 }
 
 async function fetchJson(url, { headers = {}, timeoutMs = 9000 } = {}) {
@@ -556,12 +567,15 @@ function renderDetail() {
     `
     : `<div class="no-data">No pricing data found for this card/variant yet. Add a comp below if you've seen a recent sale.</div>`;
 
+  const rawEbayUrl = buildEbaySoldSearchUrl(card, [CONDITIONS.find((c) => c.pct === conditionPct)?.code]);
+
   const rawModeBlock = `
     ${rawSuggestedBlock}
     <div class="condition-row">
       <label for="condition-select">Condition</label>
       <select id="condition-select"></select>
     </div>
+    <a class="ebay-link-btn" href="${rawEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings ↗</a>
   `;
 
   const gradedSuggestedBlock = gradedSuggestion
@@ -570,7 +584,9 @@ function renderDetail() {
       <div class="suggested-price">${formatMoney(gradedSuggestion.suggested)}</div>
       <div class="suggested-range">Range: ${formatMoney(gradedSuggestion.range[0])} – ${formatMoney(gradedSuggestion.range[1])}, from ${gradedSuggestion.count} logged comp${gradedSuggestion.count === 1 ? "" : "s"}</div>
     `
-    : `<div class="no-data">No ${state.gradedCompany} ${state.gradedGrade} comps logged yet for this card. There's no live graded sold-price feed wired in — eBay sold listings and PSA's Auction Prices Realized both require a developer account to access, which isn't set up yet. Log a recent sale you've seen (eBay, an auction, another vendor) below and it's remembered for every future lookup of this card.</div>`;
+    : `<div class="no-data">No ${state.gradedCompany} ${state.gradedGrade} comps logged yet for this card. Tap "Check eBay sold listings" below to see real recent sales for this exact card/grade, then log what you find as a comp — it's remembered for every future lookup of this card.</div>`;
+
+  const gradedEbayUrl = buildEbaySoldSearchUrl(card, [state.gradedCompany, state.gradedGrade]);
 
   const gradedModeBlock = `
     <div class="condition-row">
@@ -580,6 +596,7 @@ function renderDetail() {
       <select id="grade-value-select"></select>
     </div>
     ${gradedSuggestedBlock}
+    <a class="ebay-link-btn" href="${gradedEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings for ${state.gradedCompany} ${state.gradedGrade} ↗</a>
   `;
 
   el.detailContent.innerHTML = `

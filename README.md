@@ -70,13 +70,17 @@ Each card's "Suggested fair price" panel has a Raw / Graded toggle:
 - **Raw** is everything above — market data + your comps, adjusted by condition percentage.
 - **Graded** lets you pick a company (PSA, Beckett/BGS, CGC, TAG) and a grade (1–10, with half-point
   steps for BGS/CGC/TAG since those companies grade that way). There is intentionally **no live
-  graded-price feed** behind this — eBay's sold-listings API and PSA's Auction Prices Realized API
-  both require applying for developer access, which isn't set up. Instead, the suggested graded
-  price is the median of comps *you've personally logged* for that exact company+grade on that
-  card (from a comp add form scoped to whatever company/grade you're currently viewing). It's
-  honest rather than guessed: if you haven't logged a PSA 10 sale for a card yet, it says so
-  plainly instead of showing a fabricated number. Once you log one, it's remembered for every
-  future lookup of that card.
+  graded-price feed** behind this — eBay's sold-listings API (Marketplace Insights) is a Limited
+  Release that eBay isn't approving new applicants for, and scraping eBay directly would violate
+  their terms and break constantly, so neither was viable. Instead, both modes show a **"🔍 Check
+  eBay sold listings"** button that deep-links straight to eBay's own sold-listings search, already
+  filtered to Sold + Completed and sorted by most recently ended, pre-filled with the card
+  name/set/grade — so you review the same real listings eBay shows anyone, in one tap, no
+  scraping involved. The suggested graded price itself is the median of comps *you've personally
+  logged* for that exact company+grade (via a comp form scoped to whichever grade you're viewing).
+  It's honest rather than guessed: if you haven't logged a sale for a card/grade yet, it says so
+  plainly instead of showing a fabricated number, and points you at the eBay button to go check.
+  Once logged, a comp is remembered for every future lookup of that card.
 
 ## Staying up during an outage
 
@@ -112,11 +116,12 @@ genuinely isn't priced yet in either database — that's the moment to log a com
 - Card photo scanning uses on-device OCR (Tesseract.js) to read text off the card and feed it into
   the name search — it's a convenience for typing less, not real card recognition. It works best
   on a clear, well-lit shot of the card name; error cases just fall back to manual search.
-- Pricing is pokemontcg.io's TCGplayer/Cardmarket feed only — no live eBay sold-comp data (would
-  need a separate API and developer credentials to add later).
-- Graded card (PSA/BGS/CGC/TAG) pricing isn't pulled from a live source (see "Raw vs. Graded mode"
-  above) — it's entirely built from comps you log yourself. Getting real eBay/PSA APR data in would
-  need developer accounts with those services; ask if you want to pursue that.
+- Pricing is pokemontcg.io/TCGdex's TCGplayer/Cardmarket feed only — no live eBay sold-comp API,
+  since eBay's Marketplace Insights API isn't open to new applicants and scraping eBay isn't
+  something this app does. The "Check eBay sold listings" button is the workaround: a deep link to
+  eBay's own real search results, reviewed by you rather than pulled automatically.
+- Graded card (PSA/BGS/CGC/TAG) suggested prices are entirely built from comps you log yourself
+  after checking the eBay link — there's no automatic graded-price feed for the same reason above.
 - Cross-referencing (see above) matches cards by ID between pokemontcg.io and TCGdex, which isn't
   guaranteed for every promo/subset print — some gaps can't be closed automatically and still need
   a manual comp.
