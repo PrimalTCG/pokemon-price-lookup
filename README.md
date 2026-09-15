@@ -74,9 +74,12 @@ Each card's "Suggested fair price" panel has a Raw / Graded toggle:
   Release that eBay isn't approving new applicants for, and scraping eBay directly would violate
   their terms and break constantly, so neither was viable. Instead, both modes show a **"🔍 Check
   eBay sold listings"** button that deep-links straight to eBay's own sold-listings search, already
-  filtered to Sold + Completed and sorted by most recently ended, pre-filled with the card
-  name/set/grade — so you review the same real listings eBay shows anyone, in one tap, no
-  scraping involved. The suggested graded price itself is the median of comps *you've personally
+  filtered to Sold + Completed and sorted by most recently ended — so you review the same real
+  listings eBay shows anyone, in one tap, no scraping involved. The search query is built to match
+  how graded cards actually get listed (researched against real eBay titles): release year +
+  "Pokemon" + card name + set name + card number/set total + company + grade, e.g. `2000 Pokemon
+  Blaine's Charizard Gym Challenge 2/132 PSA 10` — in testing this consistently surfaces the exact
+  card as the top result rather than a flood of loosely related listings. The suggested graded price itself is the median of comps *you've personally
   logged* for that exact company+grade (via a comp form scoped to whichever grade you're viewing).
   It's honest rather than guessed: if you haven't logged a sale for a card/grade yet, it says so
   plainly instead of showing a fabricated number, and points you at the eBay button to go check.

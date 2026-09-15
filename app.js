@@ -84,7 +84,9 @@ function formatMoney(n) {
 }
 
 function buildEbaySoldSearchUrl(card, extraTerms) {
-  const terms = [card.name, card.set?.name, ...extraTerms].filter(Boolean);
+  const year = card.set?.releaseDate ? card.set.releaseDate.slice(0, 4) : null;
+  const cardNumber = card.number ? (card.set?.printedTotal ? `${card.number}/${card.set.printedTotal}` : card.number) : null;
+  const terms = [year, "Pokemon", card.name, card.set?.name, cardNumber, ...extraTerms].filter(Boolean);
   const params = new URLSearchParams({
     _nkw: terms.join(" "),
     LH_Sold: "1",
