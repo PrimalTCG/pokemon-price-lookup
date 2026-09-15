@@ -3,16 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#1f2937" />
+  <meta name="theme-color" content="#0a0a0a" />
   <link rel="manifest" href="manifest.json" />
-  <title>Card Fair Price</title>
+  <link rel="icon" href="assets/logo-badge-180.png" />
+  <link rel="apple-touch-icon" href="assets/logo-badge-180.png" />
+  <title>PrimalTCG &middot; Fair Price</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div class="hero-bg" aria-hidden="true"></div>
+
   <header class="topbar">
-    <h1>Card Fair Price</h1>
+    <div class="brand">
+      <img class="brand-badge" src="assets/logo-badge-256.png" alt="PrimalTCG" />
+      <img class="brand-wordmark" src="assets/logo-wordmark-640.png" alt="PrimalTCG" />
+    </div>
     <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
   </header>
+  <div class="tagline">Buy &bull; Sell &bull; Trade &bull; Collect</div>
+  <div class="pokeball-divider" aria-hidden="true"><span></span></div>
 
   <main id="search-view">
     <div class="search-row">

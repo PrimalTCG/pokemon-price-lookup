@@ -1,8 +1,13 @@
 {
-  "name": "Card Fair Price",
-  "short_name": "CardPrice",
+  "name": "PrimalTCG Fair Price",
+  "short_name": "PrimalTCG",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#f7f7f5",
-  "theme_color": "#1f2937"
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    { "src": "assets/logo-badge-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "assets/logo-badge-256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "assets/logo-badge-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
 }
