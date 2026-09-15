@@ -63,6 +63,21 @@ Condition adjustment (Near Mint down to Damaged) uses standard vendor rule-of-th
 discounts off the raw suggested price — not live graded-sale data, since no graded price source is
 wired in yet. Treat it as a quick adjustment, not gospel.
 
+### Raw vs. Graded mode
+
+Each card's "Suggested fair price" panel has a Raw / Graded toggle:
+
+- **Raw** is everything above — market data + your comps, adjusted by condition percentage.
+- **Graded** lets you pick a company (PSA, Beckett/BGS, CGC, TAG) and a grade (1–10, with half-point
+  steps for BGS/CGC/TAG since those companies grade that way). There is intentionally **no live
+  graded-price feed** behind this — eBay's sold-listings API and PSA's Auction Prices Realized API
+  both require applying for developer access, which isn't set up. Instead, the suggested graded
+  price is the median of comps *you've personally logged* for that exact company+grade on that
+  card (from a comp add form scoped to whatever company/grade you're currently viewing). It's
+  honest rather than guessed: if you haven't logged a PSA 10 sale for a card yet, it says so
+  plainly instead of showing a fabricated number. Once you log one, it's remembered for every
+  future lookup of that card.
+
 ## Staying up during an outage
 
 pokemontcg.io occasionally throws server errors (it's a free community API). To keep the app
@@ -81,6 +96,17 @@ usable at a show even then, every search follows this order:
 If all three come up empty (a brand-new search term during a total outage), the app tells you
 plainly rather than hanging, so you can fall back to your own judgment and log a manual comp.
 
+### Cross-referencing to close pricing gaps
+
+pokemontcg.io and TCGdex are both third-party aggregators of TCGplayer/Cardmarket's price feeds —
+neither has 100% real-time coverage of every card, so occasionally a card that clearly has a price
+on tcgplayer.com shows nothing from whichever source answered your search first. To close that gap,
+whenever a result is missing TCGplayer and/or Cardmarket pricing, the app automatically checks the
+*other* source (by card ID, which is compatible between the two APIs for the large majority of
+cards) and fills in whatever that source has. You'll see a small "✓ filled in from a second source"
+note on a card detail page when this happened. If a card is still showing "no data" after that, it
+genuinely isn't priced yet in either database — that's the moment to log a comp.
+
 ## Known limitations
 
 - Card photo scanning uses on-device OCR (Tesseract.js) to read text off the card and feed it into
@@ -88,5 +114,9 @@ plainly rather than hanging, so you can fall back to your own judgment and log a
   on a clear, well-lit shot of the card name; error cases just fall back to manual search.
 - Pricing is pokemontcg.io's TCGplayer/Cardmarket feed only — no live eBay sold-comp data (would
   need a separate API and developer credentials to add later).
-- Graded card (PSA/BGS) pricing isn't pulled from a live source; the condition multiplier is a
-  manual raw-card heuristic only.
+- Graded card (PSA/BGS/CGC/TAG) pricing isn't pulled from a live source (see "Raw vs. Graded mode"
+  above) — it's entirely built from comps you log yourself. Getting real eBay/PSA APR data in would
+  need developer accounts with those services; ask if you want to pursue that.
+- Cross-referencing (see above) matches cards by ID between pokemontcg.io and TCGdex, which isn't
+  guaranteed for every promo/subset print — some gaps can't be closed automatically and still need
+  a manual comp.

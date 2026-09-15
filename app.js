@@ -9,6 +9,13 @@ const CONDITIONS = [
   { label: "Damaged (~20%)", pct: 20 },
 ];
 
+const GRADING_COMPANIES = {
+  PSA: { label: "PSA", grades: ["10", "9", "8", "7", "6", "5", "4", "3", "2", "1"] },
+  BGS: { label: "Beckett (BGS)", grades: ["10", "9.5", "9", "8.5", "8", "7.5", "7", "6", "5", "4"] },
+  CGC: { label: "CGC", grades: ["10", "9.5", "9", "8.5", "8", "7.5", "7", "6", "5", "4"] },
+  TAG: { label: "TAG", grades: ["10", "9.5", "9", "8.5", "8", "7.5", "7", "6", "5", "4"] },
+};
+
 const store = {
   getApiKey: () => localStorage.getItem("pfp_apiKey") || "",
   setApiKey: (v) => localStorage.setItem("pfp_apiKey", v),
@@ -47,6 +54,9 @@ let state = {
   currentCard: null,
   currentVariant: null,
   currentConditionPct: store.getConditionDefault(),
+  priceMode: "raw",
+  gradedCompany: "PSA",
+  gradedGrade: "10",
 };
 
 function parseApiDate(str) {
@@ -188,6 +198,49 @@ async function searchTcgdex(term) {
   return details.filter(Boolean);
 }
 
+function hasTcgplayerPricing(card) {
+  return !!(card.tcgplayer?.prices && Object.keys(card.tcgplayer.prices).length);
+}
+
+function hasCardmarketPricing(card) {
+  return !!(card.cardmarket?.prices && Object.values(card.cardmarket.prices).some((v) => typeof v === "number" && v > 0));
+}
+
+function cardNeedsEnrichment(card) {
+  return !hasTcgplayerPricing(card) || !hasCardmarketPricing(card);
+}
+
+async function fetchPokemonTcgIoById(id) {
+  const headers = {};
+  const key = store.getApiKey();
+  if (key) headers["X-Api-Key"] = key;
+  const data = await fetchJsonRetry(`${POKEMONTCG_BASE}/${id}`, { headers }, 0);
+  return { ...data.data, _source: "pokemontcg.io" };
+}
+
+async function fetchTcgdexById(id) {
+  const data = await fetchJsonRetry(`${TCGDEX_BASE}/cards/${id}`, {}, 0);
+  return normalizeTcgdexCard(data);
+}
+
+async function enrichCardPricing(card) {
+  if (!cardNeedsEnrichment(card)) return card;
+  const fetchOther = card._source === "TCGdex (backup)" ? fetchPokemonTcgIoById : fetchTcgdexById;
+  const result = await trySource(() => fetchOther(card.id));
+  if (!result.ok) return card;
+  const other = result.value;
+  const merged = { ...card, _crossReferenced: card._crossReferenced || [] };
+  if (!hasTcgplayerPricing(card) && hasTcgplayerPricing(other)) {
+    merged.tcgplayer = other.tcgplayer;
+    merged._crossReferenced = [...merged._crossReferenced, "TCGplayer"];
+  }
+  if (!hasCardmarketPricing(card) && hasCardmarketPricing(other)) {
+    merged.cardmarket = other.cardmarket;
+    merged._crossReferenced = [...merged._crossReferenced, "Cardmarket"];
+  }
+  return merged;
+}
+
 function cacheSearchResults(term, cards) {
   const cache = store.getSearchCache();
   cache[term.toLowerCase()] = { cards, ts: new Date().toISOString() };
@@ -246,11 +299,17 @@ async function runSearch(term) {
     return;
   }
 
-  cacheSearchResults(term, cards);
   el.searchStatus.textContent = usedFallback
     ? `${cards.length} result${cards.length === 1 ? "" : "s"} — backup source (pokemontcg.io unavailable)`
     : `${cards.length} result${cards.length === 1 ? "" : "s"}`;
   renderResults(cards);
+
+  const needEnrichment = cards.some(cardNeedsEnrichment);
+  if (needEnrichment) {
+    cards = await Promise.all(cards.map(enrichCardPricing));
+    renderResults(cards);
+  }
+  cacheSearchResults(term, cards);
 }
 
 function bestGlanceHighlights(card) {
@@ -305,8 +364,11 @@ function pushHistory(card) {
   store.setHistory(history);
 }
 
-function openDetail(card) {
+async function openDetail(card) {
   state.currentCard = card;
+  state.priceMode = "raw";
+  state.gradedCompany = "PSA";
+  state.gradedGrade = "10";
   const variants = Object.keys(card.tcgplayer?.prices || {});
   state.currentVariant = variants[0] || null;
   state.currentConditionPct = store.getConditionDefault();
@@ -315,6 +377,19 @@ function openDetail(card) {
   el.settingsView.hidden = true;
   el.detailView.hidden = false;
   renderDetail();
+
+  if (cardNeedsEnrichment(card)) {
+    const enriched = await enrichCardPricing(card);
+    if (state.currentCard === card) {
+      state.currentCard = enriched;
+      if (!state.currentVariant) {
+        const enrichedVariants = Object.keys(enriched.tcgplayer?.prices || {});
+        state.currentVariant = enrichedVariants[0] || null;
+      }
+      pushHistory(enriched);
+      renderDetail();
+    }
+  }
 }
 
 el.backBtn.addEventListener("click", () => {
@@ -361,9 +436,11 @@ function computeDataPoints(card, variant, comps) {
         ]
       : [
           ["trendPrice", "Cardmarket trend", 3],
+          ["averageSellPrice", "Cardmarket average sell", 2],
           ["avg30", "Cardmarket 30d avg", 2],
           ["avg7", "Cardmarket 7d avg", 1],
           ["avg1", "Cardmarket 1d avg", 1],
+          ["lowPrice", "Cardmarket low", 1],
         ];
     for (const [key, label, weight] of fields) {
       if (typeof cm.prices[key] === "number" && cm.prices[key] > 0) {
@@ -372,6 +449,7 @@ function computeDataPoints(card, variant, comps) {
     }
   }
   for (const c of comps) {
+    if (c.kind === "graded") continue;
     points.push({
       label: `Your comp${c.note ? ": " + c.note : ""}`,
       value: c.price,
@@ -381,6 +459,20 @@ function computeDataPoints(card, variant, comps) {
     });
   }
   return points;
+}
+
+function computeGradedSuggestion(comps, company, grade) {
+  const matching = comps
+    .filter((c) => c.kind === "graded" && c.grade?.company === company && String(c.grade?.grade) === String(grade))
+    .map((c) => ({ value: c.price, days: daysSince(c.date), note: c.note, date: c.date }))
+    .sort((a, b) => (a.days ?? Infinity) - (b.days ?? Infinity));
+  if (matching.length === 0) return null;
+  const values = matching.map((m) => m.value).sort((a, b) => a - b);
+  const mid = Math.floor(values.length / 2);
+  const median = values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+  const freshest = matching.filter((m) => m.days != null && m.days <= 60);
+  const confidence = freshest.length >= 2 ? "high" : matching.length >= 2 ? "medium" : "low";
+  return { suggested: median, range: [values[0], values[values.length - 1]], confidence, count: matching.length, matching };
 }
 
 function summarize(points) {
@@ -413,6 +505,8 @@ function renderDetail() {
   const comps = (store.getComps()[card.id] || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
   const summary = summarize(computeDataPoints(card, variant, comps));
   const conditionPct = state.currentConditionPct;
+  const priceMode = state.priceMode;
+  const gradedSuggestion = computeGradedSuggestion(comps, state.gradedCompany, state.gradedGrade);
 
   const variants = Object.keys(card.tcgplayer?.prices || {});
   const variantButtons = variants
@@ -448,19 +542,45 @@ function renderDetail() {
     : "";
 
   const compRows = comps
-    .map(
-      (c, i) =>
-        `<div class="comp-item"><span>${formatMoney(c.price)}${c.note ? " — " + c.note : ""}</span><span>${c.date} <a href="#" data-remove-comp="${i}" style="color:var(--bad);margin-left:8px;">remove</a></span></div>`
-    )
+    .map((c, i) => {
+      const tag = c.kind === "graded" && c.grade ? `<span class="comp-tag">${c.grade.company} ${c.grade.grade}</span>` : "";
+      return `<div class="comp-item"><span>${tag}${formatMoney(c.price)}${c.note ? " — " + c.note : ""}</span><span>${c.date} <a href="#" data-remove-comp="${i}" style="color:var(--bad);margin-left:8px;">remove</a></span></div>`;
+    })
     .join("");
 
-  const suggestedBlock = summary
+  const rawSuggestedBlock = summary
     ? `
       <span class="confidence-badge confidence-${summary.confidence}">${summary.confidence.toUpperCase()} CONFIDENCE</span>
       <div class="suggested-price">${formatMoney(summary.suggested * (conditionPct / 100))}</div>
       <div class="suggested-range">Range: ${formatMoney(summary.range[0] * (conditionPct / 100))} – ${formatMoney(summary.range[1] * (conditionPct / 100))} at ${conditionPct}% condition, based on ${summary.usable.length} data point${summary.usable.length === 1 ? "" : "s"}</div>
     `
     : `<div class="no-data">No pricing data found for this card/variant yet. Add a comp below if you've seen a recent sale.</div>`;
+
+  const rawModeBlock = `
+    ${rawSuggestedBlock}
+    <div class="condition-row">
+      <label for="condition-select">Condition</label>
+      <select id="condition-select"></select>
+    </div>
+  `;
+
+  const gradedSuggestedBlock = gradedSuggestion
+    ? `
+      <span class="confidence-badge confidence-${gradedSuggestion.confidence}">${gradedSuggestion.confidence.toUpperCase()} CONFIDENCE</span>
+      <div class="suggested-price">${formatMoney(gradedSuggestion.suggested)}</div>
+      <div class="suggested-range">Range: ${formatMoney(gradedSuggestion.range[0])} – ${formatMoney(gradedSuggestion.range[1])}, from ${gradedSuggestion.count} logged comp${gradedSuggestion.count === 1 ? "" : "s"}</div>
+    `
+    : `<div class="no-data">No ${state.gradedCompany} ${state.gradedGrade} comps logged yet for this card. There's no live graded sold-price feed wired in — eBay sold listings and PSA's Auction Prices Realized both require a developer account to access, which isn't set up yet. Log a recent sale you've seen (eBay, an auction, another vendor) below and it's remembered for every future lookup of this card.</div>`;
+
+  const gradedModeBlock = `
+    <div class="condition-row">
+      <label for="grade-company-select">Company</label>
+      <select id="grade-company-select"></select>
+      <label for="grade-value-select">Grade</label>
+      <select id="grade-value-select"></select>
+    </div>
+    ${gradedSuggestedBlock}
+  `;
 
   el.detailContent.innerHTML = `
     <div class="card-head">
@@ -470,16 +590,17 @@ function renderDetail() {
         <div class="set-line">${card.set?.name || ""} · #${card.number}${card.set?.printedTotal ? "/" + card.set.printedTotal : ""}</div>
         <div class="set-line">${card.rarity || ""}${card.set?.releaseDate ? " · Released " + card.set.releaseDate : ""}</div>
         ${card._source === "TCGdex (backup)" ? `<div class="backup-note">⚠ Backup source (pokemontcg.io was unavailable) — prices may differ slightly</div>` : ""}
+        ${card._crossReferenced?.length ? `<div class="xref-note">✓ ${card._crossReferenced.join(" & ")} data filled in from a second source</div>` : ""}
       </div>
     </div>
 
     <div class="section-box">
       <h3>Suggested fair price</h3>
-      ${suggestedBlock}
-      <div class="condition-row">
-        <label for="condition-select">Condition</label>
-        <select id="condition-select"></select>
+      <div class="mode-toggle">
+        <button class="mode-btn ${priceMode === "raw" ? "active" : ""}" data-mode="raw">Raw</button>
+        <button class="mode-btn ${priceMode === "graded" ? "active" : ""}" data-mode="graded">Graded</button>
       </div>
+      ${priceMode === "graded" ? gradedModeBlock : rawModeBlock}
     </div>
 
     ${variants.length ? `
@@ -500,24 +621,60 @@ function renderDetail() {
       ${compRows || `<div class="no-data">No comps added yet. If you spot a recent sale (eBay, another vendor, etc.) log it here — it factors into the suggested price above.</div>`}
       <div class="comp-add-row">
         <input type="number" id="comp-price" placeholder="Price" step="0.01" />
-        <input type="text" id="comp-note" placeholder="Note (e.g. ebay sold, PSA 9)" />
-        <button class="text-btn" id="comp-add-btn">Add</button>
+        <input type="text" id="comp-note" placeholder="Note (e.g. ebay sold)" />
+        <button class="text-btn" id="comp-add-btn">${priceMode === "graded" ? `Add ${state.gradedCompany} ${state.gradedGrade}` : "Add"}</button>
       </div>
     </div>
   `;
 
-  const condSelect = document.getElementById("condition-select");
-  CONDITIONS.forEach((c) => {
-    const opt = document.createElement("option");
-    opt.value = c.pct;
-    opt.textContent = c.label;
-    if (c.pct === conditionPct) opt.selected = true;
-    condSelect.appendChild(opt);
+  el.detailContent.querySelectorAll(".mode-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.priceMode = btn.dataset.mode;
+      renderDetail();
+    });
   });
-  condSelect.addEventListener("change", (e) => {
-    state.currentConditionPct = Number(e.target.value);
-    renderDetail();
-  });
+
+  if (priceMode === "graded") {
+    const companySelect = document.getElementById("grade-company-select");
+    Object.entries(GRADING_COMPANIES).forEach(([key, c]) => {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = c.label;
+      if (key === state.gradedCompany) opt.selected = true;
+      companySelect.appendChild(opt);
+    });
+    companySelect.addEventListener("change", (e) => {
+      state.gradedCompany = e.target.value;
+      state.gradedGrade = GRADING_COMPANIES[state.gradedCompany].grades[0];
+      renderDetail();
+    });
+
+    const gradeSelect = document.getElementById("grade-value-select");
+    GRADING_COMPANIES[state.gradedCompany].grades.forEach((g) => {
+      const opt = document.createElement("option");
+      opt.value = g;
+      opt.textContent = g;
+      if (g === state.gradedGrade) opt.selected = true;
+      gradeSelect.appendChild(opt);
+    });
+    gradeSelect.addEventListener("change", (e) => {
+      state.gradedGrade = e.target.value;
+      renderDetail();
+    });
+  } else {
+    const condSelect = document.getElementById("condition-select");
+    CONDITIONS.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.pct;
+      opt.textContent = c.label;
+      if (c.pct === conditionPct) opt.selected = true;
+      condSelect.appendChild(opt);
+    });
+    condSelect.addEventListener("change", (e) => {
+      state.currentConditionPct = Number(e.target.value);
+      renderDetail();
+    });
+  }
 
   el.detailContent.querySelectorAll(".variant-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -534,7 +691,14 @@ function renderDetail() {
     if (!price || price <= 0) return;
     const allComps = store.getComps();
     const list = allComps[card.id] || [];
-    list.push({ price, note: noteInput.value.trim(), date: new Date().toISOString().slice(0, 10) });
+    const entry = { price, note: noteInput.value.trim(), date: new Date().toISOString().slice(0, 10) };
+    if (state.priceMode === "graded") {
+      entry.kind = "graded";
+      entry.grade = { company: state.gradedCompany, grade: state.gradedGrade };
+    } else {
+      entry.kind = "raw";
+    }
+    list.push(entry);
     allComps[card.id] = list;
     store.setComps(allComps);
     renderDetail();
