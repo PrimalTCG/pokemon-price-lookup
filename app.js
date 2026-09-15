@@ -474,18 +474,28 @@ function computeDataPoints(card, variant, comps) {
   return points;
 }
 
+const GRADED_AVERAGE_WINDOW = 5;
+
 function computeGradedSuggestion(comps, company, grade) {
   const matching = comps
     .filter((c) => c.kind === "graded" && c.grade?.company === company && String(c.grade?.grade) === String(grade))
     .map((c) => ({ value: c.price, days: daysSince(c.date), note: c.note, date: c.date }))
     .sort((a, b) => (a.days ?? Infinity) - (b.days ?? Infinity));
   if (matching.length === 0) return null;
-  const values = matching.map((m) => m.value).sort((a, b) => a - b);
-  const mid = Math.floor(values.length / 2);
-  const median = values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
-  const freshest = matching.filter((m) => m.days != null && m.days <= 60);
-  const confidence = freshest.length >= 2 ? "high" : matching.length >= 2 ? "medium" : "low";
-  return { suggested: median, range: [values[0], values[values.length - 1]], confidence, count: matching.length, matching };
+  const recent = matching.slice(0, GRADED_AVERAGE_WINDOW);
+  const values = recent.map((m) => m.value);
+  const average = values.reduce((sum, v) => sum + v, 0) / values.length;
+  const freshest = recent.filter((m) => m.days != null && m.days <= 60);
+  const confidence = freshest.length >= 2 ? "high" : recent.length >= 2 ? "medium" : "low";
+  return {
+    suggested: average,
+    range: [Math.min(...values), Math.max(...values)],
+    confidence,
+    count: recent.length,
+    totalLogged: matching.length,
+    matching: recent,
+    newestDays: recent[0].days,
+  };
 }
 
 function summarize(points) {
@@ -580,11 +590,17 @@ function renderDetail() {
     <a class="ebay-link-btn" href="${rawEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings ↗</a>
   `;
 
+  const STALE_COMP_DAYS = 30;
+  const staleWarning = gradedSuggestion && gradedSuggestion.newestDays != null && gradedSuggestion.newestDays > STALE_COMP_DAYS
+    ? `<div class="backup-note">⚠ Your newest logged comp is ${formatDaysAgo(gradedSuggestion.newestDays)} — eBay prices move fast. Check the listings again and log a fresh comp before relying on this.</div>`
+    : "";
+
   const gradedSuggestedBlock = gradedSuggestion
     ? `
       <span class="confidence-badge confidence-${gradedSuggestion.confidence}">${gradedSuggestion.confidence.toUpperCase()} CONFIDENCE</span>
       <div class="suggested-price">${formatMoney(gradedSuggestion.suggested)}</div>
-      <div class="suggested-range">Range: ${formatMoney(gradedSuggestion.range[0])} – ${formatMoney(gradedSuggestion.range[1])}, from ${gradedSuggestion.count} logged comp${gradedSuggestion.count === 1 ? "" : "s"}</div>
+      <div class="suggested-range">Average of your ${gradedSuggestion.count} most recent logged comp${gradedSuggestion.count === 1 ? "" : "s"}${gradedSuggestion.totalLogged > gradedSuggestion.count ? ` (of ${gradedSuggestion.totalLogged} total logged)` : ""} · range ${formatMoney(gradedSuggestion.range[0])} – ${formatMoney(gradedSuggestion.range[1])}</div>
+      ${staleWarning}
     `
     : `<div class="no-data">No ${state.gradedCompany} ${state.gradedGrade} comps logged yet for this card. Tap "Check eBay sold listings" below to see real recent sales for this exact card/grade, then log what you find as a comp — it's remembered for every future lookup of this card.</div>`;
 
@@ -599,6 +615,7 @@ function renderDetail() {
     </div>
     ${gradedSuggestedBlock}
     <a class="ebay-link-btn" href="${gradedEbayUrl}" target="_blank" rel="noopener">🔍 Check eBay sold listings for ${state.gradedCompany} ${state.gradedGrade} ↗</a>
+    ${gradedSuggestion ? `<button class="text-btn" id="clear-graded-comps-btn">Clear ${state.gradedCompany} ${state.gradedGrade} comps &amp; start fresh</button>` : ""}
   `;
 
   el.detailContent.innerHTML = `
@@ -694,6 +711,16 @@ function renderDetail() {
       renderDetail();
     });
   }
+
+  document.getElementById("clear-graded-comps-btn")?.addEventListener("click", () => {
+    const allComps = store.getComps();
+    const list = allComps[card.id] || [];
+    allComps[card.id] = list.filter(
+      (c) => !(c.kind === "graded" && c.grade?.company === state.gradedCompany && String(c.grade?.grade) === state.gradedGrade)
+    );
+    store.setComps(allComps);
+    renderDetail();
+  });
 
   el.detailContent.querySelectorAll(".variant-btn").forEach((btn) => {
     btn.addEventListener("click", () => {

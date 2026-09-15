@@ -79,11 +79,20 @@ Each card's "Suggested fair price" panel has a Raw / Graded toggle:
   how graded cards actually get listed (researched against real eBay titles): release year +
   "Pokemon" + card name + set name + card number/set total + company + grade, e.g. `2000 Pokemon
   Blaine's Charizard Gym Challenge 2/132 PSA 10` — in testing this consistently surfaces the exact
-  card as the top result rather than a flood of loosely related listings. The suggested graded price itself is the median of comps *you've personally
-  logged* for that exact company+grade (via a comp form scoped to whichever grade you're viewing).
-  It's honest rather than guessed: if you haven't logged a sale for a card/grade yet, it says so
-  plainly instead of showing a fabricated number, and points you at the eBay button to go check.
-  Once logged, a comp is remembered for every future lookup of that card.
+  card as the top result rather than a flood of loosely related listings. The suggested graded
+  price itself is the **average of your 5 most recent logged comps** for that exact company+grade
+  (fewer than 5 if you haven't logged that many yet), via a comp form scoped to whichever grade
+  you're viewing. It's honest rather than guessed: if you haven't logged a sale for a card/grade
+  yet, it says so plainly instead of showing a fabricated number, and points you at the eBay button
+  to go check. Once logged, a comp is remembered for every future lookup of that card — this is
+  necessarily a manual step since eBay's own sold-listings API isn't open to new applicants and
+  this app won't scrape eBay's pages (see "Staying up during an outage" and known limitations).
+
+  Because comps are a snapshot rather than a live feed, they go stale — a PSA 10 you logged last
+  month isn't what the card is worth today. If the newest comp you've logged for a grade is more
+  than 30 days old, the panel shows a plain warning to go recheck eBay, and a **"Clear ... comps &
+  start fresh"** button removes just that card's comps for the currently-viewed company+grade in
+  one tap, so re-checking and re-logging is fast instead of deleting entries one at a time.
 
 ## Staying up during an outage
 
