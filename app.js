@@ -1,4 +1,5 @@
-const API_BASE = "https://api.pokemontcg.io/v2/cards";
+const POKEMONTCG_BASE = "https://api.pokemontcg.io/v2/cards";
+const TCGDEX_BASE = "https://api.tcgdex.net/v2/en";
 
 const CONDITIONS = [
   { label: "Near Mint (100%)", pct: 100 },
@@ -17,6 +18,8 @@ const store = {
   setHistory: (arr) => localStorage.setItem("pfp_history", JSON.stringify(arr)),
   getComps: () => JSON.parse(localStorage.getItem("pfp_comps") || "{}"),
   setComps: (obj) => localStorage.setItem("pfp_comps", JSON.stringify(obj)),
+  getSearchCache: () => JSON.parse(localStorage.getItem("pfp_searchCache") || "{}"),
+  setSearchCache: (obj) => localStorage.setItem("pfp_searchCache", JSON.stringify(obj)),
 };
 
 const el = {
@@ -70,16 +73,138 @@ function formatMoney(n) {
   return "$" + Number(n).toFixed(2);
 }
 
-async function apiFetch(url) {
+async function fetchJson(url, { headers = {}, timeoutMs = 9000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { headers, signal: controller.signal });
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJsonRetry(url, opts, retries = 1) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetchJson(url, opts);
+    } catch (err) {
+      lastErr = err;
+      const isClientError = err.status && err.status >= 400 && err.status < 500 && err.status !== 429;
+      if (isClientError || attempt === retries) break;
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  }
+  throw lastErr;
+}
+
+async function trySource(fn) {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (err) {
+    return { ok: false, error: err };
+  }
+}
+
+async function searchPokemonTcgIo(term) {
   const headers = {};
   const key = store.getApiKey();
   if (key) headers["X-Api-Key"] = key;
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    if (res.status === 429) throw new Error("Rate limited. Add a free API key in Settings to raise your limit.");
-    throw new Error(`Lookup failed (${res.status})`);
+  const q = encodeURIComponent(`name:${term}*`);
+  const data = await fetchJsonRetry(`${POKEMONTCG_BASE}?q=${q}&pageSize=25&orderBy=-set.releaseDate`, { headers }, 1);
+  return (data.data || []).map((card) => ({ ...card, _source: "pokemontcg.io" }));
+}
+
+function kebabToCamel(str) {
+  return str.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
+}
+
+function normalizeTcgdexCard(card) {
+  const tcgPrices = {};
+  let tcgUpdated = null;
+  let cm = null;
+  for (const variant of card.variants_detailed || []) {
+    const p = variant.pricing;
+    if (!p) continue;
+    if (p.tcgplayer) {
+      tcgUpdated = tcgUpdated || p.tcgplayer.updated;
+      for (const [key, v] of Object.entries(p.tcgplayer)) {
+        if (key === "unit" || key === "updated" || !v || typeof v !== "object") continue;
+        const camelKey = kebabToCamel(key);
+        if (!tcgPrices[camelKey]) {
+          tcgPrices[camelKey] = { low: v.lowPrice, mid: v.midPrice, high: v.highPrice, market: v.marketPrice, directLow: v.directLowPrice };
+        }
+      }
+    }
+    if (p.cardmarket && !cm) cm = p.cardmarket;
   }
-  return res.json();
+
+  const cardmarket = cm
+    ? {
+        updatedAt: cm.updated,
+        prices: {
+          trendPrice: cm.trend,
+          averageSellPrice: cm.avg,
+          avg1: cm.avg1,
+          avg7: cm.avg7,
+          avg30: cm.avg30,
+          lowPrice: cm.low,
+          reverseHoloTrend: cm["trend-holo"],
+          reverseHoloAvg1: cm["avg1-holo"],
+          reverseHoloAvg7: cm["avg7-holo"],
+          reverseHoloAvg30: cm["avg30-holo"],
+        },
+      }
+    : undefined;
+
+  return {
+    id: card.id,
+    name: card.name,
+    number: card.localId,
+    rarity: card.rarity,
+    images: card.image ? { small: `${card.image}/low.webp`, large: `${card.image}/high.webp` } : {},
+    set: card.set ? { name: card.set.name, printedTotal: card.set.cardCount?.official || card.set.cardCount?.total } : undefined,
+    tcgplayer: Object.keys(tcgPrices).length ? { updatedAt: tcgUpdated, prices: tcgPrices } : undefined,
+    cardmarket,
+    _source: "TCGdex (backup)",
+  };
+}
+
+async function searchTcgdex(term) {
+  const list = await fetchJsonRetry(`${TCGDEX_BASE}/cards?name=${encodeURIComponent(term)}`, {}, 1);
+  const subset = list.slice(0, 12);
+  const details = await Promise.all(
+    subset.map(async (c) => {
+      const result = await trySource(() => fetchJsonRetry(`${TCGDEX_BASE}/cards/${c.id}`, {}, 0));
+      return result.ok ? normalizeTcgdexCard(result.value) : null;
+    })
+  );
+  return details.filter(Boolean);
+}
+
+function cacheSearchResults(term, cards) {
+  const cache = store.getSearchCache();
+  cache[term.toLowerCase()] = { cards, ts: new Date().toISOString() };
+  const keys = Object.keys(cache);
+  if (keys.length > 40) delete cache[keys[0]];
+  store.setSearchCache(cache);
+}
+
+function handleTotalSearchFailure(term, primaryError) {
+  const cached = store.getSearchCache()[term.toLowerCase()];
+  if (cached) {
+    renderResults(cached.cards);
+    el.searchStatus.textContent = `Both price sources are unreachable — showing cached results from ${formatDaysAgo(daysSince(cached.ts))}.`;
+    return;
+  }
+  const hint = primaryError?.status === 429 ? " Add a free API key in Settings to reduce rate limits." : "";
+  el.searchStatus.textContent = `Both price sources are unavailable right now — try again shortly.${hint}`;
 }
 
 let searchTimer = null;
@@ -98,19 +223,34 @@ el.searchInput.addEventListener("input", () => {
 async function runSearch(term) {
   el.searchStatus.textContent = "Searching…";
   el.resultsList.innerHTML = "";
-  try {
-    const q = encodeURIComponent(`name:${term}*`);
-    const data = await apiFetch(`${API_BASE}?q=${q}&pageSize=25&orderBy=-set.releaseDate`);
-    const cards = data.data || [];
-    if (cards.length === 0) {
-      el.searchStatus.textContent = "No cards found. Try a shorter or different spelling.";
+
+  const primary = await trySource(() => searchPokemonTcgIo(term));
+  let cards = primary.ok ? primary.value : null;
+  let usedFallback = false;
+
+  if (cards === null || cards.length === 0) {
+    const fallback = await trySource(() => searchTcgdex(term));
+    if (fallback.ok && fallback.value.length) {
+      cards = fallback.value;
+      usedFallback = true;
+    } else if (cards === null && !fallback.ok) {
+      handleTotalSearchFailure(term, primary.error);
       return;
+    } else if (cards === null) {
+      cards = [];
     }
-    el.searchStatus.textContent = `${cards.length} result${cards.length === 1 ? "" : "s"}`;
-    renderResults(cards);
-  } catch (err) {
-    el.searchStatus.textContent = err.message;
   }
+
+  if (cards.length === 0) {
+    el.searchStatus.textContent = "No cards found. Try a shorter or different spelling.";
+    return;
+  }
+
+  cacheSearchResults(term, cards);
+  el.searchStatus.textContent = usedFallback
+    ? `${cards.length} result${cards.length === 1 ? "" : "s"} — backup source (pokemontcg.io unavailable)`
+    : `${cards.length} result${cards.length === 1 ? "" : "s"}`;
+  renderResults(cards);
 }
 
 function bestGlanceHighlights(card) {
@@ -129,7 +269,7 @@ function renderResults(cards) {
     const li = document.createElement("li");
     li.className = "result-item";
     li.innerHTML = `
-      <img src="${card.images?.small || ""}" alt="" loading="lazy" />
+      <img src="${card.images?.small || ""}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
       <div>
         <div class="rname">${card.name}</div>
         <div class="rmeta">${card.set?.name || ""} · #${card.number}${card.set?.printedTotal ? "/" + card.set.printedTotal : ""} · ${card.rarity || "—"}</div>
@@ -152,7 +292,7 @@ function renderRecent() {
   for (const item of history) {
     const chip = document.createElement("div");
     chip.className = "chip";
-    chip.innerHTML = `<img src="${item.images?.small || ""}" alt="" /><span>${item.name}</span>`;
+    chip.innerHTML = `<img src="${item.images?.small || ""}" alt="" onerror="this.style.visibility='hidden'" /><span>${item.name}</span>`;
     chip.addEventListener("click", () => openDetail(item));
     el.recentList.appendChild(chip);
   }
@@ -324,11 +464,12 @@ function renderDetail() {
 
   el.detailContent.innerHTML = `
     <div class="card-head">
-      <img src="${card.images?.large || card.images?.small || ""}" alt="" />
+      <img src="${card.images?.large || card.images?.small || ""}" alt="" onerror="this.style.visibility='hidden'" />
       <div>
         <h2>${card.name}</h2>
         <div class="set-line">${card.set?.name || ""} · #${card.number}${card.set?.printedTotal ? "/" + card.set.printedTotal : ""}</div>
         <div class="set-line">${card.rarity || ""}${card.set?.releaseDate ? " · Released " + card.set.releaseDate : ""}</div>
+        ${card._source === "TCGdex (backup)" ? `<div class="backup-note">⚠ Backup source (pokemontcg.io was unavailable) — prices may differ slightly</div>` : ""}
       </div>
     </div>
 

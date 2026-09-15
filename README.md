@@ -6,9 +6,11 @@ every number, and get a suggested fair-price range that flags how confident the 
 For cards with little or no market data, log your own comps (a sale you just saw, a graded price,
 etc.) and they factor into the suggestion.
 
-It's a static site — no server, no build step, no database. All data comes live from the free
-[pokemontcg.io](https://pokemontcg.io) API at lookup time; your API key, recent lookups, and comps
-are stored only in your phone's browser (`localStorage`), never sent anywhere else.
+It's a static site — no server, no build step, no database. Pricing comes live from the free
+[pokemontcg.io](https://pokemontcg.io) API at lookup time, with [TCGdex](https://tcgdex.dev) as an
+automatic backup source if pokemontcg.io is down or erroring (see below); your API key, recent
+lookups, comps, and a short results cache are stored only in your phone's browser (`localStorage`),
+never sent anywhere else.
 
 ## Run it locally
 
@@ -60,6 +62,24 @@ shown underneath so you can override the suggestion with your own read of the ca
 Condition adjustment (Near Mint down to Damaged) uses standard vendor rule-of-thumb percentage
 discounts off the raw suggested price — not live graded-sale data, since no graded price source is
 wired in yet. Treat it as a quick adjustment, not gospel.
+
+## Staying up during an outage
+
+pokemontcg.io occasionally throws server errors (it's a free community API). To keep the app
+usable at a show even then, every search follows this order:
+
+1. **pokemontcg.io**, retried once automatically on a server error before giving up.
+2. **TCGdex**, a separate free/open card database that carries the same underlying TCGplayer and
+   Cardmarket pricing feeds. If pokemontcg.io fails or returns zero results, the app silently
+   retries the search here instead. When this happens, you'll see "backup source" in the results
+   count and a warning note on the card detail page, since coverage/freshness can differ slightly
+   from pokemontcg.io.
+3. **Local cache**: every successful search (from either source) is cached on your phone. If both
+   live sources are down, a repeat search for a card you already looked up today still works,
+   clearly labeled as cached with how old it is.
+
+If all three come up empty (a brand-new search term during a total outage), the app tells you
+plainly rather than hanging, so you can fall back to your own judgment and log a manual comp.
 
 ## Known limitations
 
