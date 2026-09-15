@@ -27,6 +27,8 @@ const store = {
   setComps: (obj) => localStorage.setItem("pfp_comps", JSON.stringify(obj)),
   getSearchCache: () => JSON.parse(localStorage.getItem("pfp_searchCache") || "{}"),
   setSearchCache: (obj) => localStorage.setItem("pfp_searchCache", JSON.stringify(obj)),
+  getSearchFrequency: () => JSON.parse(localStorage.getItem("pfp_searchFreq") || "{}"),
+  setSearchFrequency: (obj) => localStorage.setItem("pfp_searchFreq", JSON.stringify(obj)),
 };
 
 const el = {
@@ -48,6 +50,12 @@ const el = {
   conditionDefault: document.getElementById("condition-default"),
   saveSettingsBtn: document.getElementById("save-settings-btn"),
   clearHistoryBtn: document.getElementById("clear-history-btn"),
+  sideLeft: document.getElementById("side-left"),
+  sideRight: document.getElementById("side-right"),
+  watchlistList: document.getElementById("watchlist-list"),
+  watchlistStatus: document.getElementById("watchlist-status"),
+  mostCheckedList: document.getElementById("most-checked-list"),
+  newReleasesList: document.getElementById("new-releases-list"),
 };
 
 let state = {
@@ -377,11 +385,169 @@ function renderRecent() {
   }
 }
 
+const WATCHLIST_NAMES = [
+  "Charizard", "Blastoise", "Venusaur", "Umbreon VMAX", "Rayquaza VMAX",
+  "Giratina V", "Mew ex", "Lugia", "Gengar VMAX", "Sylveon VMAX",
+  "Gyarados", "Mewtwo", "Moltres", "Pikachu",
+];
+const WATCHLIST_CACHE_KEY = "pfp_watchlistCache";
+const NEW_RELEASES_CACHE_KEY = "pfp_newReleasesCache";
+const SIDE_CACHE_HOURS = 12;
+
+function sideCardHtml(card, extraLine) {
+  return `
+    <li class="side-card">
+      <img src="${card.images?.small || ""}" alt="" onerror="this.style.visibility='hidden'" />
+      <div class="side-card-info">
+        <div class="side-card-name">${card.name}</div>
+        <div class="side-card-set">${card.set?.name || ""}</div>
+        ${extraLine || ""}
+      </div>
+    </li>
+  `;
+}
+
+function wireSideCardClicks(listEl, cards) {
+  listEl.querySelectorAll(".side-card").forEach((li, i) => {
+    li.addEventListener("click", () => openDetail(cards[i]));
+  });
+}
+
+function pickBestPrintFromResults(cards) {
+  let best = null;
+  let bestPrice = -1;
+  for (const card of cards) {
+    const prices = card.tcgplayer?.prices;
+    if (!prices) continue;
+    for (const variant of Object.values(prices)) {
+      if (typeof variant.market === "number" && variant.market > bestPrice) {
+        bestPrice = variant.market;
+        best = card;
+      }
+    }
+  }
+  return best;
+}
+
+async function fetchWatchlistCard(name) {
+  // Deliberately lightweight: a single, short-timeout, no-retry, no-fallback,
+  // no-enrichment fetch per name. This runs ~14 of these concurrently on page
+  // load, so any cascading (retries/fallback/enrichment) multiplies fast and
+  // can bog the page down when the API is degraded. A skipped watchlist entry
+  // is harmless; a slow page isn't.
+  const headers = {};
+  const key = store.getApiKey();
+  if (key) headers["X-Api-Key"] = key;
+  const q = encodeURIComponent(`name:${name}*`);
+  const result = await trySource(() =>
+    fetchJson(`${POKEMONTCG_BASE}?q=${q}&pageSize=10&orderBy=-set.releaseDate`, { headers, timeoutMs: 6000 })
+  );
+  if (!result.ok) return null;
+  const cards = (result.value.data || []).map((c) => ({ ...c, _source: "pokemontcg.io" }));
+  return pickBestPrintFromResults(cards);
+}
+
+function computeCardMovement(card) {
+  const cm = card.cardmarket?.prices;
+  if (!cm || typeof cm.avg7 !== "number" || typeof cm.avg30 !== "number" || cm.avg30 <= 0) return null;
+  return { pct: ((cm.avg7 - cm.avg30) / cm.avg30) * 100 };
+}
+
+function renderWatchlist(cards) {
+  const withMovement = cards
+    .map((card) => ({ card, movement: computeCardMovement(card) }))
+    .filter((x) => x.movement);
+  if (withMovement.length === 0) {
+    el.watchlistStatus.textContent = "No 30-day trend data available right now.";
+    el.watchlistList.innerHTML = "";
+    return;
+  }
+  withMovement.sort((a, b) => Math.abs(b.movement.pct) - Math.abs(a.movement.pct));
+  el.watchlistStatus.textContent = "";
+  el.watchlistList.innerHTML = withMovement
+    .map(({ card, movement }) => {
+      const dir = movement.pct >= 0 ? "up" : "down";
+      const arrow = movement.pct >= 0 ? "▲" : "▼";
+      return sideCardHtml(card, `<div class="side-card-move ${dir}">${arrow} ${Math.abs(movement.pct).toFixed(1)}% vs 30d avg</div>`);
+    })
+    .join("");
+  wireSideCardClicks(el.watchlistList, withMovement.map((x) => x.card));
+}
+
+async function loadWatchlist() {
+  if (!el.watchlistList) return;
+  const cached = JSON.parse(localStorage.getItem(WATCHLIST_CACHE_KEY) || "null");
+  if (cached && Date.now() - cached.ts < SIDE_CACHE_HOURS * 3600000) {
+    renderWatchlist(cached.cards);
+    return;
+  }
+  el.watchlistStatus.textContent = "Loading…";
+  const results = await Promise.all(WATCHLIST_NAMES.map((name) => trySource(() => fetchWatchlistCard(name))));
+  const cards = results.filter((r) => r.ok && r.value).map((r) => r.value);
+  if (cards.length) {
+    localStorage.setItem(WATCHLIST_CACHE_KEY, JSON.stringify({ cards, ts: Date.now() }));
+    renderWatchlist(cards);
+  } else {
+    el.watchlistStatus.textContent = "Unable to load right now.";
+  }
+}
+
+function renderMostChecked() {
+  if (!el.mostCheckedList) return;
+  const freq = store.getSearchFrequency();
+  const entries = Object.values(freq)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+  if (entries.length === 0) {
+    el.mostCheckedList.innerHTML = `<div class="side-empty">Cards you look up will show here.</div>`;
+    return;
+  }
+  el.mostCheckedList.innerHTML = entries
+    .map(({ card, count }) => sideCardHtml(card, `<div class="side-card-set">Checked ${count}×</div>`))
+    .join("");
+  wireSideCardClicks(el.mostCheckedList, entries.map((e) => e.card));
+}
+
+function renderNewReleases(cards) {
+  el.newReleasesList.innerHTML = cards.map((card) => sideCardHtml(card)).join("");
+  wireSideCardClicks(el.newReleasesList, cards);
+}
+
+async function loadNewReleases() {
+  if (!el.newReleasesList) return;
+  const cached = JSON.parse(localStorage.getItem(NEW_RELEASES_CACHE_KEY) || "null");
+  if (cached && Date.now() - cached.ts < SIDE_CACHE_HOURS * 3600000) {
+    renderNewReleases(cached.cards);
+    return;
+  }
+  const q = encodeURIComponent("supertype:Pokémon");
+  const result = await trySource(() => fetchJsonRetry(`${POKEMONTCG_BASE}?q=${q}&orderBy=-set.releaseDate&pageSize=6`, {}, 1));
+  if (result.ok) {
+    const cards = (result.value.data || []).map((c) => ({ ...c, _source: "pokemontcg.io" }));
+    localStorage.setItem(NEW_RELEASES_CACHE_KEY, JSON.stringify({ cards, ts: Date.now() }));
+    renderNewReleases(cards);
+  } else {
+    el.newReleasesList.innerHTML = `<div class="side-empty">Unable to load right now.</div>`;
+  }
+}
+
 function pushHistory(card) {
   let history = store.getHistory().filter((c) => c.id !== card.id);
   history.unshift(card);
   history = history.slice(0, 20);
   store.setHistory(history);
+
+  const freq = store.getSearchFrequency();
+  const existing = freq[card.id];
+  freq[card.id] = { card, count: (existing?.count || 0) + 1 };
+  store.setSearchFrequency(freq);
+  renderMostChecked();
+}
+
+function setHomeVisible(visible) {
+  el.searchView.hidden = !visible;
+  el.sideLeft.hidden = !visible;
+  el.sideRight.hidden = !visible;
 }
 
 async function openDetail(card) {
@@ -393,7 +559,7 @@ async function openDetail(card) {
   state.currentVariant = variants[0] || null;
   state.currentConditionPct = store.getConditionDefault();
   pushHistory(card);
-  el.searchView.hidden = true;
+  setHomeVisible(false);
   el.settingsView.hidden = true;
   el.detailView.hidden = false;
   renderDetail();
@@ -414,7 +580,7 @@ async function openDetail(card) {
 
 el.backBtn.addEventListener("click", () => {
   el.detailView.hidden = true;
-  el.searchView.hidden = false;
+  setHomeVisible(true);
   renderRecent();
 });
 
@@ -810,7 +976,7 @@ el.cameraInput.addEventListener("change", async () => {
 });
 
 el.settingsBtn.addEventListener("click", () => {
-  el.searchView.hidden = true;
+  setHomeVisible(false);
   el.detailView.hidden = true;
   el.settingsView.hidden = false;
   el.apiKeyInput.value = store.getApiKey();
@@ -828,7 +994,7 @@ el.saveSettingsBtn.addEventListener("click", () => {
   store.setApiKey(el.apiKeyInput.value.trim());
   store.setConditionDefault(Number(el.conditionDefault.value));
   el.settingsView.hidden = true;
-  el.searchView.hidden = false;
+  setHomeVisible(true);
   renderRecent();
 });
 
@@ -838,3 +1004,6 @@ el.clearHistoryBtn.addEventListener("click", () => {
 });
 
 renderRecent();
+renderMostChecked();
+loadWatchlist();
+loadNewReleases();

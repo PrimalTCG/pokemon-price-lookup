@@ -139,6 +139,27 @@ cards) and fills in whatever that source has. You'll see a small "✓ filled in 
 note on a card detail page when this happened. If a card is still showing "no data" after that, it
 genuinely isn't priced yet in either database — that's the moment to log a comp.
 
+## Side panels (wide screens only)
+
+On a desktop-width browser window (roughly 1320px+ — hidden entirely on phone, where there's no
+room and the app stays exactly as it was), two panels flank the search screen:
+
+- **Watchlist Movers** (left): a curated list of well-known valuable cards (Charizard, Umbreon
+  VMAX, etc.), each showing real 7-day-vs-30-day Cardmarket average price movement, sorted by
+  biggest movers first. This is **not** a market-wide "trending" feed — no such data source exists
+  publicly — it's a fixed watchlist with genuinely computed price deltas from the same Cardmarket
+  data already used elsewhere in the app. Cached locally for 12 hours so it doesn't re-fetch on
+  every visit; each lookup is a single short-timeout request with no retry or fallback chain, kept
+  deliberately lightweight so a slow/degraded API can't stall the page (14 requests fired at once
+  is enough to feel it if they cascade).
+- **Your Most Checked** (right, top): cards you've personally looked up most often on this device —
+  genuinely tracked locally, not a claim about what other vendors are searching.
+- **New Releases** (right, bottom): the actual newest Pokémon cards by real set release date.
+
+All three link straight into the normal card detail view on click. None of this claims to be
+"most searched" in any global sense or algorithmic "trending" — there's no data source that would
+make that honest, so it isn't built.
+
 ## Known limitations
 
 - Card photo scanning uses on-device OCR (Tesseract.js) to read text off the card and feed it into

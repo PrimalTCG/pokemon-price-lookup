@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=9" />
+  <link rel="stylesheet" href="style.css?v=11" />
 </head>
 <body>
   <div class="hero-bg" aria-hidden="true"></div>
@@ -25,6 +25,20 @@
   </header>
   <div class="tagline">Buy &bull; Sell &bull; Trade &bull; Collect</div>
   <div class="pokeball-divider" aria-hidden="true"><span></span></div>
+
+  <aside id="side-left" class="side-panel">
+    <h3>Watchlist Movers</h3>
+    <p class="side-note">Curated popular cards, real 7-day vs. 30-day Cardmarket average — not a market-wide trending feed.</p>
+    <div id="watchlist-status" class="side-empty">Loading…</div>
+    <ul id="watchlist-list" class="side-list"></ul>
+  </aside>
+
+  <aside id="side-right" class="side-panel">
+    <h3>Your Most Checked</h3>
+    <ul id="most-checked-list" class="side-list"></ul>
+    <h3 class="side-h3-spaced">New Releases</h3>
+    <ul id="new-releases-list" class="side-list"></ul>
+  </aside>
 
   <main id="search-view">
     <div class="search-row">
@@ -64,6 +78,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>
